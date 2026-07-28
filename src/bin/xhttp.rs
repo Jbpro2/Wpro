@@ -12,11 +12,30 @@ use tokio_rustls::TlsAcceptor;
 type XhttpError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Sessão xHTTP ativa com canais para comunicação GET<->POST<->SSH
-#[allow(dead_code)]
-struct XhttpSession {
-    post_tx: mpsc::Sender<Vec<u8>>,
-    get_tx: mpsc::Sender<Vec<u8>>,
-    active: Arc<RwLock<bool>>,
+use bytes::Bytes;
+
+#[derive(Clone)]
+pub struct XhttpSession {
+    post_tx: mpsc::Sender<Bytes>,
+    get_tx: mpsc::Sender<Bytes>,
+    active: Arc<AtomicBool>,
+    id: Uuid,
+    created_at: Instant,
+}
+
+impl XhttpSession {
+    pub fn new() -> Self {
+        Self {
+            post_tx: mpsc::channel(64).0,
+            get_tx: mpsc::channel(64).0,
+            active: Arc::new(AtomicBool::new(true)),
+            id: Uuid::new_v4(),
+            created_at: Instant::now(),
+        }
+    }
+    
+    pub fn id(&self) -> Uuid { self.id }
+    pub fn age(&self) -> Duration { self.created_at.elapsed() }
 }
 
 static SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, XhttpSession>>>> =
