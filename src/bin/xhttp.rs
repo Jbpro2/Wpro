@@ -24,37 +24,90 @@ static SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, XhttpSession>>>
 
 #[tokio::main]
 async fn main() -> Result<(), XhttpError> {
-    let port = get_port();
-    let status = get_status();
-    let ssh_port = get_ssh_port();
+    let config = ServerConfig::load();
+    config.print_banner();
+    
+    let listener = config.bind().await?;
+    let app_state = AppState::new(config);
+    
+    run_server(listener, app_state).await
+}
 
-    println!("[Mpro] xHTTP v3.6.1 – Fixed Connection Lag");
-    println!("[xHTTP] Porta: {} | SSH Backend: 127.0.0.1:{}", port, ssh_port);
-    println!("[xHTTP] Keep-Alive: timeout=30 max=100 | Canal GET/POST: 16384");
-    println!("[xHTTP] TCP_QUICKACK | Peek=200ms | TLS read=1.5s | SSH connect=3s");
+struct ServerConfig {
+    port: u16,
+    ssh_port: u16,
+    status: Status,
+    tcp_quickack: bool,
+    keep_alive_timeout: u64,
+    max_keep_alive: usize,
+    channel_size: usize,
+    tls_read_timeout: Duration,
+    ssh_connect_timeout: Duration,
+}
 
-    let listener = TcpListener::bind(format!("[::]:{}", port)).await.map_err(|e| Box::new(e) as XhttpError)?;
-    let status_arc = Arc::new(status);
+impl ServerConfig {
+    fn load() -> Self {
+        Self {
+            port: get_port(),
+            ssh_port: get_ssh_port(),
+            status: get_status(),
+            tcp_quickack: cfg!(target_os = "linux"),
+            keep_alive_timeout: 30,
+            max_keep_alive: 100,
+            channel_size: 16384,
+            tls_read_timeout: Duration::from_secs_f64(1.5),
+            ssh_connect_timeout: Duration::from_secs(3),
+        }
+    }
+    
+    fn print_banner(&self) {
+        use colored::*;
+        
+        println!("{} xHTTP v3.6.1 – {}", "[Mpro]".cyan().bold(), "Fixed Connection Lag".green());
+        println!("{} Port: {} | SSH Backend: 127.0.0.1:{}", 
+            "[xHTTP]".blue().bold(), 
+            self.port.to_string().yellow(),
+            self.ssh_port.to_string().yellow()
+        );
+        println!("{} Keep-Alive: timeout={} max={} | Channel GET/POST: {}",
+            "[xHTTP]".blue().bold(),
+            self.keep_alive_timeout,
+            self.max_keep_alive,
+            self.channel_size
+        );
+        println!("{} TCP_QUICKACK | Peek=200ms | TLS read={:?} | SSH connect={:?}",
+            "[xHTTP]".blue().bold(),
+            self.tls_read_timeout,
+            self.ssh_connect_timeout
+        );
+    }
+}
 
+async fn run_server(listener: TcpListener, state: AppState) -> Result<(), XhttpError> {
+    let status_arc = Arc::new(state.config.status);
+    
     loop {
         match listener.accept().await {
-            Ok((client_stream, _addr)) => {
-                let _ = client_stream.set_nodelay(true);
-                // Fator 2: TCP_QUICKACK – ACK imediato, elimina delay do Nagle
-                #[cfg(target_os = "linux")]
-                {
-                    use std::os::fd::AsFd;
-                    use std::os::fd::AsRawFd;
-                    let fd = client_stream.as_fd().as_raw_fd();
-                    unsafe { libc::setsockopt(fd, libc::IPPROTO_TCP, libc::TCP_QUICKACK, &(1i32) as *const i32 as *const libc::c_void, std::mem::size_of::<i32>() as libc::socklen_t); }
+            Ok((stream, addr)) => {
+                if state.config.tcp_quickack {
+                    enable_tcp_quickack(&stream);
                 }
+                stream.set_nodelay(true)?;
+                
                 let status = status_arc.clone();
+                let ssh_port = state.config.ssh_port;
+                
                 tokio::spawn(async move {
-                    let _ = handle_xhttp_client(client_stream, &status, ssh_port).await;
+                    if let Err(e) = handle_xhttp_client(stream, &status, ssh_port).await {
+                        tracing::warn!(%addr, %e, "Client error");
+                    }
                 });
             }
             Err(e) => {
-                println!("[xHTTP] Erro aceitar conexao: {}", e);
+                if is_critical_error(&e) {
+                    return Err(Box::new(e) as XhttpError);
+                }
+                tracing::error!(%e, "Accept error");
             }
         }
     }
