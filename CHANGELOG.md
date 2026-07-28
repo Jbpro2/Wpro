@@ -27,7 +27,7 @@ systemctl restart proxy-443
 
 ---
 
-## v2.4.1 - xHTTP SplitHTTP (DTUNNEL Fix)
+## v2.4.1 - xHTTP SplitHTTP
 
 ### Novo
 - **Correção SplitHTTP** — suporte completo ao protocolo SplitHTTP usado no DTUNNEL
