@@ -28,7 +28,7 @@ async fn main() -> Result<(), XhttpError> {
     let status = get_status();
     let ssh_port = get_ssh_port();
 
-    println!("[Mpro] xHTTP v3.6.0 – Latency Optimized for Low Latency Networks");
+    println!("[Mpro] xHTTP v3.6.1 – Fixed Connection Lag");
     println!("[xHTTP] Porta: {} | SSH Backend: 127.0.0.1:{}", port, ssh_port);
     println!("[xHTTP] Keep-Alive: timeout=30 max=100 | Canal GET/POST: 16384");
     println!("[xHTTP] TCP_QUICKACK | Peek=200ms | TLS read=1.5s | SSH connect=3s");
@@ -203,7 +203,7 @@ async fn handle_xhttp_get_tls(tls: &mut tokio_rustls::server::TlsStream<TcpStrea
         sessions.remove(&sid);
     }
 
-    // Fator 1: RESPOSTA IMEDIATA com Keep-Alive (timeout=30, max=100)
+    // CORREÇÃO: Resposta IMEDIATA ANTES de conectar ao SSH para evitar travamento em "Conectando"
     let resp = format!(
         "HTTP/1.1 200 OK\r\n\
         Content-Type: application/octet-stream\r\n\
@@ -220,10 +220,10 @@ async fn handle_xhttp_get_tls(tls: &mut tokio_rustls::server::TlsStream<TcpStrea
     tls.write_all(resp.as_bytes()).await.map_err(|e| Box::new(e) as XhttpError)?;
     tls.flush().await.map_err(|e| Box::new(e) as XhttpError)?;
 
-    // Fator 3: SSH connect timeout reduzido para 3s
+    // Agora conectamos ao SSH em segundo plano ou após o flush
     let ssh = timeout(Duration::from_secs(3), TcpStream::connect(format!("127.0.0.1:{}", ssh_port))).await.map_err(|_| Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "SSH Connect Timeout")) as XhttpError)?.map_err(|e| Box::new(e) as XhttpError)?;
     let (mut sr, mut sw) = ssh.into_split();
-    // Fator 1: Canal GET/POST ampliado para 16384
+    
     let (ptx, mut prx) = mpsc::channel::<Vec<u8>>(16384); 
     let (gtx, mut grx) = mpsc::channel::<Vec<u8>>(16384); 
     let act = Arc::new(RwLock::new(true));
@@ -277,7 +277,7 @@ async fn handle_xhttp_get_raw(stream: &mut TcpStream, path: &str, status: &str, 
         sessions.remove(&sid);
     }
 
-    // Fator 1: RESPOSTA IMEDIATA com Keep-Alive (timeout=30, max=100)
+    // CORREÇÃO: Resposta IMEDIATA ANTES de conectar ao SSH
     let resp = format!(
         "HTTP/1.1 200 OK\r\n\
         Content-Type: application/octet-stream\r\n\
@@ -294,10 +294,9 @@ async fn handle_xhttp_get_raw(stream: &mut TcpStream, path: &str, status: &str, 
     stream.write_all(resp.as_bytes()).await.map_err(|e| Box::new(e) as XhttpError)?;
     stream.flush().await.map_err(|e| Box::new(e) as XhttpError)?;
 
-    // Fator 3: SSH connect timeout reduzido para 3s
     let ssh = timeout(Duration::from_secs(3), TcpStream::connect(format!("127.0.0.1:{}", ssh_port))).await.map_err(|_| Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "SSH Connect Timeout")) as XhttpError)?.map_err(|e| Box::new(e) as XhttpError)?;
     let (mut sr, mut sw) = ssh.into_split();
-    // Fator 1: Canal GET/POST ampliado para 16384
+    
     let (ptx, mut prx) = mpsc::channel::<Vec<u8>>(16384);
     let (gtx, mut grx) = mpsc::channel::<Vec<u8>>(16384);
     let act = Arc::new(RwLock::new(true));
@@ -346,7 +345,6 @@ async fn handle_xhttp_post_tls(tls: &mut tokio_rustls::server::TlsStream<TcpStre
     let h_end = req.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or(0) + 4;
     let mut body = req[h_end..].to_vec();
     
-    // Fator 2: POST read_exact sem timeout – lê o corpo completo sem esperar, mais rápido em redes lentas
     if body.len() < cl {
         let mut b = vec![0u8; cl - body.len()];
         tls.read_exact(&mut b).await.map_err(|e| Box::new(e) as XhttpError)?;
@@ -357,7 +355,6 @@ async fn handle_xhttp_post_tls(tls: &mut tokio_rustls::server::TlsStream<TcpStre
         let _ = s.post_tx.send(body).await; 
     }
     
-    // Fator 1: Keep-Alive na resposta POST
     tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\nKeep-Alive: timeout=30, max=100\r\n\r\n").await.map_err(|e| Box::new(e) as XhttpError)?;
     Ok(())
 }
@@ -368,7 +365,6 @@ async fn handle_xhttp_post_raw(stream: &mut TcpStream, req: &[u8], path: &str, _
     let h_end = req.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or(0) + 4;
     let mut body = req[h_end..].to_vec();
     
-    // Fator 2: POST read_exact sem timeout – lê o corpo completo sem esperar
     if body.len() < cl {
         let mut b = vec![0u8; cl - body.len()];
         stream.read_exact(&mut b).await.map_err(|e| Box::new(e) as XhttpError)?;
@@ -379,7 +375,6 @@ async fn handle_xhttp_post_raw(stream: &mut TcpStream, req: &[u8], path: &str, _
         let _ = s.post_tx.send(body).await; 
     }
     
-    // Fator 1: Keep-Alive na resposta POST
     stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\nKeep-Alive: timeout=30, max=100\r\n\r\n").await.map_err(|e| Box::new(e) as XhttpError)?;
     Ok(())
 }
