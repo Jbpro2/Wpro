@@ -1,7 +1,7 @@
 #!/bin/bash
-# Mpro Installer - Version v3
+# Mpro Installer - Version v4
 
-REPO_URL="https://github.com/Jbpro2/Jbpro.git"
+REPO_URL="https://github.com/Jbpro2/Wpro.git"
 REPO_BRANCH="main"
 CMD_NAME="mpro"
 TOTAL_STEPS=7
@@ -46,7 +46,7 @@ echo -e "${BLUE}${BOLD} ██╔████╔██║██████╔�
 echo -e "${BLUE}${BOLD} ██║╚██╔╝██║██╔═══╝ ██╔══██╗██║   ██║${NC}"
 echo -e "${PURPLE}${BOLD} ██║ ╚═╝ ██║██║     ██║  ██║╚██████╔╝${NC}"
 echo -e "${BLUE}${BOLD} ╚═╝     ╚═╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ ${NC}"
-echo -e "${BLUE}${BOLD}         F R E E   V E R S I O N       ${NC}"
+echo -e "${BLUE}${BOLD}         F R E E   V E R S I O N   26    ${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
 log_info "Iniciando instalação do Mpro v3.1.0 (🇧🇷)..."
 
