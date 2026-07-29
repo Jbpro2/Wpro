@@ -90,22 +90,15 @@ async fn handle_tls_dual(stream: TcpStream, status: &str, ssh_port: u16) -> Resu
     let data = &buf[..n];
     let http_str = String::from_utf8_lossy(data);
     
-    const XHTTP_PATTERNS: [&str; 3] = ["x-session-id", "/ssh/", "/xhttp/"];
-
-fn is_xhttp_request(s: &str) -> bool {
-    XHTTP_PATTERNS.iter().any(|pattern| s.contains(pattern))
-}
-
-// No código principal
-if let Some((method, path)) = parse_http_request(&http_str) {
-    if is_xhttp_request(&http_str) {
-        return match method.as_str() {
-            "GET" => handle_xhttp_get_tls(&mut tls_stream, &path, status, ssh_port).await,
-            "POST" => handle_xhttp_post_tls(&mut tls_stream, data, &path, status).await,
-            _ => Ok(()),
-        };
+    if (http_str.contains("x-session-id") || http_str.contains("/ssh/") || http_str.contains("/xhttp/")) {
+        if let Some((method, path)) = parse_http_request(&http_str) {
+            match method.as_str() {
+                "GET" => return handle_xhttp_get_tls(&mut tls_stream, &path, status, ssh_port).await,
+                "POST" => return handle_xhttp_post_tls(&mut tls_stream, data, &path, status).await,
+                _ => {}
+            }
+        }
     }
-}
 
     if http_str.contains("HTTP/1.") {
         let resp = format!("HTTP/1.1 101 ({})\r\n\r\nHTTP/1.1 200 ({})\r\n\r\n", status, status);
